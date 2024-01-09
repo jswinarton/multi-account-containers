@@ -1,4 +1,22 @@
-const SYNC_DEBUG = false;
+// OBJECTIVE 1
+// If a user downloads MAC to a second device and enables sync, the presence of
+// the default containers on the second device should not be synced back.
+//
+// Given:
+// - a user installs MAC for the first time on a new machine, and
+//   therefore, only the four default contextual identities are present
+// When:
+// - the user logs in to their Mozilla Account, and the initial sync state is NOT empty
+//   OR the initial sync state is NOT the four default contextual identities
+// Then:
+// - MAC should ignore the local state completely and replace it with the sync state
+
+// OBJECTIVE 2
+// Add ordering.
+// Contextual identities supports moving the position of contexts within an
+// array, but the current sync algorithm appears to simply add the new
+  // container to the bottom of the stack each time. (Note: you should test this).
+const SYNC_DEBUG = true;
 
 const sync = {
   storageArea: {
@@ -13,7 +31,7 @@ const sync = {
     },
 
     async deleteIdentity(deletedIdentityUUID) {
-      const deletedIdentityList = 
+      const deletedIdentityList =
         await sync.storageArea.getDeletedIdentityList();
       if (
         ! deletedIdentityList.find(element => element === deletedIdentityUUID)
@@ -29,7 +47,7 @@ const sync = {
     },
 
     async deleteSite(siteStoreKey) {
-      const deletedSiteList = 
+      const deletedSiteList =
         await sync.storageArea.getDeletedSiteList();
       if (deletedSiteList.find(element => element === siteStoreKey)) return;
       deletedSiteList.push(siteStoreKey);
@@ -53,7 +71,7 @@ const sync = {
       return identities;
     },
 
-    async getDeletedSiteList() { 
+    async getDeletedSiteList() {
       const storedArray = await this.getStoredItem("deletedSiteList");
       return (storedArray) ?  storedArray : [];
     },
@@ -71,7 +89,7 @@ const sync = {
 
     async getStoredItem(objectKey) {
       const outputObject = await this.get(objectKey);
-      if (outputObject && outputObject[objectKey]) 
+      if (outputObject && outputObject[objectKey])
         return outputObject[objectKey];
       return false;
     },
@@ -109,19 +127,20 @@ const sync = {
     },
 
     async backup(options) {
+      console.log("Running backup from either an onCreated or onUpdated listener", options);
       // remove listeners to avoid an infinite loop!
       await sync.checkForListenersMaybeRemove();
 
       const identities = await updateSyncIdentities();
       const siteAssignments = await updateSyncSiteAssignments();
       await updateInstanceInfo(identities, siteAssignments);
-      if (options && options.uuid) 
+      if (options && options.uuid)
         await this.deleteIdentity(options.uuid);
-      if (options && options.undeleteUUID) 
+      if (options && options.undeleteUUID)
         await removeFromDeletedIdentityList(options.undeleteUUID);
-      if (options && options.siteStoreKey) 
+      if (options && options.siteStoreKey)
         await this.deleteSite(options.siteStoreKey);
-      if (options && options.undeleteSiteStoreKey) 
+      if (options && options.undeleteSiteStoreKey)
         await removeFromDeletedSitesList(options.undeleteSiteStoreKey);
 
       if (SYNC_DEBUG) console.log("Backed up!");
@@ -144,7 +163,7 @@ const sync = {
       }
 
       async function updateSyncSiteAssignments() {
-        const assignedSites = 
+        const assignedSites =
           await assignManager.storageArea.getAssignedSites();
         for (const siteKey of Object.keys(assignedSites)) {
           await sync.storageArea.set({ [siteKey]: assignedSites[siteKey] });
@@ -169,7 +188,7 @@ const sync = {
       }
 
       async function removeFromDeletedIdentityList(identityUUID) {
-        const deletedIdentityList = 
+        const deletedIdentityList =
           await sync.storageArea.getDeletedIdentityList();
         const newDeletedIdentityList = deletedIdentityList
           .filter(element => element !== identityUUID);
@@ -177,7 +196,7 @@ const sync = {
       }
 
       async function removeFromDeletedSitesList(siteStoreKey) {
-        const deletedSiteList = 
+        const deletedSiteList =
           await sync.storageArea.getDeletedSiteList();
         const newDeletedSiteList = deletedSiteList
           .filter(element => element !== siteStoreKey);
@@ -190,8 +209,9 @@ const sync = {
     },
 
     async addToDeletedList(changeInfo) {
+      console.log("Running addToDeletedList from onRemoved listener", changeInfo);
       const identity = changeInfo.contextualIdentity;
-      const deletedUUID = 
+      const deletedUUID =
         await identityState.lookupMACaddonUUID(identity.cookieStoreId);
       await identityState.storageArea.remove(identity.cookieStoreId);
       sync.storageArea.backup({uuid: deletedUUID});
@@ -199,6 +219,7 @@ const sync = {
   },
 
   async init() {
+    console.log("sync init");
     const syncEnabled = await assignManager.storageArea.getSyncEnabled();
     if (syncEnabled) {
       // Add listener to sync storage and containers.
@@ -213,14 +234,15 @@ const sync = {
   },
 
   async errorHandledRunSync () {
-    await sync.runSync().catch( async (error)=> { 
+    await sync.runSync().catch( async (error)=> {
       if (SYNC_DEBUG) console.error("Error from runSync", error);
       await sync.checkForListenersMaybeAdd();
     });
   },
 
   async checkForListenersMaybeAdd() {
-    const hasStorageListener =  
+    console.log("checkForListenersMaybeAdd");
+    const hasStorageListener =
       await browser.storage.onChanged.hasListener(
         sync.storageArea.onChangedListener
       );
@@ -238,13 +260,14 @@ const sync = {
   },
 
   async checkForListenersMaybeRemove() {
-    const hasStorageListener =  
+    console.log("checkForListenersMaybeRemove");
+    const hasStorageListener =
       await browser.storage.onChanged.hasListener(
         sync.storageArea.onChangedListener
       );
 
     const hasCIListener = await sync.hasContextualIdentityListeners();
-            
+
     if (hasCIListener) {
       await sync.removeContextualIdentityListeners();
     }
@@ -333,7 +356,7 @@ async function reconcileIdentities(){
     await sync.storageArea.getDeletedIdentityList();
   // first remove any deleted identities
   for (const deletedUUID of deletedIdentityList) {
-    const deletedCookieStoreId = 
+    const deletedCookieStoreId =
       await identityState.lookupCookieStoreId(deletedUUID);
     if (deletedCookieStoreId){
       try{
@@ -346,7 +369,7 @@ async function reconcileIdentities(){
     }
   }
   const localIdentities = await browser.contextualIdentities.query({});
-  const syncIdentitiesRemoveDupes = 
+  const syncIdentitiesRemoveDupes =
     await sync.storageArea.getIdentities();
   // find any local dupes created on sync storage and delete from sync storage
   for (const localIdentity of localIdentities) {
@@ -355,11 +378,11 @@ async function reconcileIdentities(){
     if (syncIdentitiesOfName.length > 1) {
       const identityMatchingContextId = syncIdentitiesOfName
         .find(identity => identity.cookieStoreId === localIdentity.cookieStoreId);
-      if (identityMatchingContextId) 
+      if (identityMatchingContextId)
         await sync.storageArea.removeIdentityKeyFromSync(identityMatchingContextId.macAddonUUID);
     }
   }
-  const syncIdentities = 
+  const syncIdentities =
     await sync.storageArea.getIdentities();
   // now compare all containers for matching names.
   for (const syncIdentity of syncIdentities) {
@@ -369,7 +392,7 @@ async function reconcileIdentities(){
       );
       if (!localMatch) {
         // if there's no name match found, check on uuid,
-        const localCookieStoreID = 
+        const localCookieStoreID =
           await identityState.lookupCookieStoreId(syncIdentity.macAddonUUID);
         if (localCookieStoreID) {
           await ifUUIDMatch(syncIdentity, localCookieStoreID);
@@ -398,12 +421,12 @@ async function reconcileIdentities(){
 
 async function updateIdentityWithSyncInfo(syncIdentity, localMatch) {
   // Sync is truth. if there is a match, compare data and update as needed
-  if (syncIdentity.color !== localMatch.color 
+  if (syncIdentity.color !== localMatch.color
       || syncIdentity.icon !== localMatch.icon) {
     await browser.contextualIdentities.update(
       localMatch.cookieStoreId, {
-        name: syncIdentity.name, 
-        color: syncIdentity.color, 
+        name: syncIdentity.name,
+        color: syncIdentity.color,
         icon: syncIdentity.icon
       });
 
@@ -419,7 +442,7 @@ async function updateIdentityWithSyncInfo(syncIdentity, localMatch) {
   // Sync is truth. If all is the same, update the local uuid to match sync
   if (localMatch.macAddonUUID !== syncIdentity.macAddonUUID) {
     await identityState.updateUUID(
-      localMatch.cookieStoreId, 
+      localMatch.cookieStoreId,
       syncIdentity.macAddonUUID
     );
   }
@@ -430,12 +453,12 @@ async function ifUUIDMatch(syncIdentity, localCookieStoreID) {
   // if there's an identical local uuid, it's the same container. Sync is truth
   const identityInfo = {
     name: syncIdentity.name,
-    color: syncIdentity.color, 
+    color: syncIdentity.color,
     icon: syncIdentity.icon
   };
   if (SYNC_DEBUG) {
     try {
-      const getIdent = 
+      const getIdent =
             await browser.contextualIdentities.get(localCookieStoreID);
       if (getIdent.name !== identityInfo.name) {
         console.log(getIdent.name, "Change name: ", identityInfo.name);
@@ -465,14 +488,14 @@ async function ifUUIDMatch(syncIdentity, localCookieStoreID) {
 async function ifNoMatch(syncIdentity){
   // if no uuid match either, make new identity
   if (SYNC_DEBUG) console.log("create new ident: ", syncIdentity.name);
-  const newIdentity = 
+  const newIdentity =
         await browser.contextualIdentities.create({
-          name: syncIdentity.name, 
-          color: syncIdentity.color, 
+          name: syncIdentity.name,
+          color: syncIdentity.color,
           icon: syncIdentity.icon
         });
   await identityState.updateUUID(
-    newIdentity.cookieStoreId, 
+    newIdentity.cookieStoreId,
     syncIdentity.macAddonUUID
   );
   return;
@@ -485,11 +508,11 @@ async function ifNoMatch(syncIdentity){
  */
 async function reconcileSiteAssignments() {
   if (SYNC_DEBUG) console.log("reconcileSiteAssignments");
-  const assignedSitesLocal = 
+  const assignedSitesLocal =
     await assignManager.storageArea.getAssignedSites();
-  const assignedSitesFromSync = 
+  const assignedSitesFromSync =
     await sync.storageArea.getAssignedSites();
-  const deletedSiteList = 
+  const deletedSiteList =
     await sync.storageArea.getDeletedSiteList();
   for(const siteStoreKey of deletedSiteList) {
     if (Object.prototype.hasOwnProperty.call(assignedSitesLocal,siteStoreKey)) {
@@ -505,7 +528,7 @@ async function reconcileSiteAssignments() {
       if (assignedSite.identityMacAddonUUID) {
       // Sync is truth.
       // Not even looking it up. Just overwrite
-        if (SYNC_DEBUG){ 
+        if (SYNC_DEBUG){
           const isInStorage = await assignManager.storageArea.getByUrlKey(urlKey);
           if (!isInStorage)
             console.log("new assignment ", assignedSite);

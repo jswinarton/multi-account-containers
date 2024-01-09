@@ -4,7 +4,7 @@ proxifiedContainers = {
   async retrieveAll() {
     const result = await browser.storage.local.get("proxifiedContainersKey");
     if(!result || !result["proxifiedContainersKey"]) {
-      return null;
+      return [];
     }
 
     return result["proxifiedContainersKey"];
@@ -21,8 +21,7 @@ proxifiedContainers = {
 
   async set(cookieStoreId, proxy) {
     // Assumes proxy is a properly formatted object
-    let proxifiedContainersStore = await proxifiedContainers.retrieveAll();
-    if (!proxifiedContainersStore) proxifiedContainersStore = [];
+    const proxifiedContainersStore = await proxifiedContainers.retrieveAll();
 
     const index = proxifiedContainersStore.findIndex(i => i.cookieStoreId === cookieStoreId);
     if (index === -1) {
@@ -65,6 +64,7 @@ proxifiedContainers = {
   async delete(cookieStoreId) {
     // Assumes proxy is a properly formatted object
     const proxifiedContainersStore = await proxifiedContainers.retrieveAll();
+
     const index = proxifiedContainersStore.findIndex(i => i.cookieStoreId === cookieStoreId);
     if (index !== -1) {
       proxifiedContainersStore.splice(index, 1);
